@@ -1,0 +1,19 @@
+library(dplyr)
+library(sf)
+library(concaveman)
+library(purrr)
+library(lwgeom)
+
+edges_pts=st_read('../data/edges_points_v1.geojson')
+
+#edges_pts %>% group_by(id) %>% tally %>% filter(n<11)
+
+polygons <- map(unique(edges_pts$id),
+                       ~ concaveman(edges_pts[edges_pts$id %in% .,])
+                       ) %>%
+  map2(unique(edges_pts$id), ~ mutate(.x, id = .y)) %>%
+  reduce(rbind)
+
+
+polygons %>% mutate(valid=st_is_valid(polygons)) %>% filter(!is.na(valid)) %>% filter(valid) %>% mutate(area=st_area(polygons)) %>% arrange(area)
+ plot(polygons)
