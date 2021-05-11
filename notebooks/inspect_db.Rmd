@@ -156,7 +156,7 @@ funceme_ts=bind_rows(cods)
 Choose threshold for exclusion in the reference dataset:
 
 ```{r}
-validation_dataset=reservoir_ts_with_cod %>%
+validation_ids=reservoir_ts_with_cod %>%
     group_by(id_jrc) %>%
     summarise(cod=first(cod),ref_area=first(ref_area),ref_perimeter=first(ref_perimeter)) %>%
     mutate(threshold=percent_rank(ref_area)) %>%
@@ -169,13 +169,13 @@ validation_dataset=reservoir_ts_with_cod %>%
 # Prepare validation data
 
 ```{r}
-validation_ts=funceme_ts %>%
+validation_dataset=funceme_ts %>%
     group_by(cod) %>%
     mutate(count=n()) %>%
     filter(count>=400) %>%
     select(-count) %>%
     ungroup %>%
-    inner_join(select(validation_dataset,cod,id_jrc)) %>%
+    inner_join(select(validation_ids,cod,id_jrc)) %>%
     mutate(time_stamp=ymd_hms(dataColeta) %>%
                force_tz(tzone='America/Sao_Paulo') %>%
                floor_date('day'),
@@ -186,13 +186,13 @@ validation_ts=funceme_ts %>%
 
 ```
 
-# Estimate volume from observed watermasks
+# Estimate volume from remote sensing watermasks
 
 ```{r}
 source('../R/hav.R')
 
-observation_ts = reservoir_ts_with_cod %>%
-    inner_join(select(validation_dataset,id_jrc)) %>%
+rs_dataset = reservoir_ts_with_cod %>%
+    inner_join(select(validation_ids,id_jrc)) %>%
     mutate(time_stamp=with_tz(ingestion_time,tzone='America/Sao_Paulo') %>% floor_date('day')) %>%
     mutate(volume = ifelse(area==0,0,modified_molle(area, modified_alpha(ref_perimeter,ref_area),modified_K(ref_perimeter,ref_area)))) %>%
     select(id_jrc,cod,time_stamp,volume,ref_area,area) %>%
@@ -206,15 +206,20 @@ observation_ts = reservoir_ts_with_cod %>%
 
 ```{r}
 
-ds=inner_join(observation_ts,validation_ts,suffix=c('_obs','_val'),by=c('id_jrc','time_stamp')) %>% filter(volume_obs<100000000) %>% filter(volume_obs>0) %>% filter(volume_val>0) %>% mutate(id_jrc=as.factor(id_jrc))
+ds=inner_join(rs_dataset,validation_dataset,suffix=c('_rs','_val'),by=c('id_jrc','time_stamp')) %>% filter(volume_rs<100000000) %>% filter(volume_rs>0) %>% filter(volume_val>0) %>% mutate(id_jrc=as.factor(id_jrc))
 
 ```
 
-# Plot
+# Plot and calculate model fit metric
 
 ```{r}
+
+ds %>%
+  pivot_wider(names_from = algorithm,values_from = volume_rs) %>%
+  yardstick::rmse(volume_val,volume_rs)
+
 plt=ggplot(ds)+
-  geom_point(aes(x=volume_obs,y=volume_val,color=id_jrc)) +
+  geom_point(aes(x=volume_rs,y=volume_val,color=id_jrc)) +
   coord_trans(x="log2", y="log2")
 ggsave('validation_plot.png',plt)
 ```
