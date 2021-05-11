@@ -219,7 +219,7 @@ ds %>%
   yardstick::rmse(volume_val,volume_rs)
 
 plt=ggplot(ds)+
-  geom_point(aes(x=volume_rs,y=volume_val,color=id_jrc)) +
+  geom_point(aes(x=volume_rs,y=volume_val,color=id_jrc,shape=algorithm)) +
   coord_trans(x="log2", y="log2")
 ggsave('validation_plot.png',plt)
 ```
