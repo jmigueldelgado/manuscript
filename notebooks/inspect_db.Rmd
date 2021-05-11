@@ -47,37 +47,65 @@ if(file.exists('../data/id_match.rds')){
 
 # Load SAR monitoring from postgresql and filter only matched reservoirs
 
+## Select from manuscript_concave (watermasks obtained using edge detection and concave hull)
 ```{r}
 id_array=id_match$id_jrc %>% paste(collapse=", ")
 
- # add this to string
-if(file.exists('../data/reservoirs_ts_with_cod.rds')){
-    reservoir_ts_with_cod=readRDS('../data/reservoirs_ts_with_cod.rds')
-    } else {
+if(file.exists('../data/res_concave_ts_with_cod.rds')){
+    res_concave_ts_with_cod=readRDS('../data/res_concave_ts_with_cod.rds')
+else {
+    select = paste0("SELECT jrc_",project,".id_jrc, ST_area(ST_Transform(jrc_",project,".geom,32629)) as ref_area, ST_Perimeter(ST_Transform(jrc_",project,".geom,32629)) as ref_perimeter, ",project,"_concave.area,",project,"_concave.ingestion_time,",project,"_concave.source_id")
 
-select = paste0("SELECT jrc_",project,".id_jrc, ST_area(ST_Transform(jrc_",project,".geom,32629)) as ref_area, ST_Perimeter(ST_Transform(jrc_",project,".geom,32629)) as ref_perimeter, ",project,".area,",project,".ingestion_time,",project,".source_id")
+    from = paste0("FROM jrc_",project," RIGHT JOIN ",project,"_concave ON jrc_",project,".id_jrc=",project,"_concave.id_jrc")
 
-from = paste0("FROM jrc_",project," RIGHT JOIN ",project," ON jrc_",project,".id_jrc=",project,".id_jrc")
+    where = paste0("WHERE ",project,"_concave.id_jrc = ANY(ARRAY[",id_array,"]);")
 
-where = paste0("WHERE manuscript.id_jrc = ANY(ARRAY[",id_array,"]);")
+    q_string=  paste(select, from, where, sep=" ")
 
-q_string=  paste(select, from, where, sep=" ")
+    con <- dbDriver("PostgreSQL") %>% dbConnect(dbname='watermasks', host = db_host, port = 5432, user = "sar2water", password = pw)
+    res_concave_ts <- dbGetQuery(con,q_string) %>% as_tibble
+    dbDisconnect(conn = con)
 
-con <- dbDriver("PostgreSQL") %>% dbConnect(dbname='watermasks', host = db_host, port = 5432, user = "sar2water", password = pw)
-reservoir_ts <- dbGetQuery(con,q_string) %>% as_tibble
-dbDisconnect(conn = con)
+    res_concave_ts_with_cod = res_concave_ts %>% right_join(id_match)
 
-reservoir_ts_with_cod = reservoir_ts %>% right_join(id_match)
-
-saveRDS(reservoir_ts_with_cod,'../data/reservoirs_ts_with_cod.rds')
+    saveRDS(res_concave_ts_with_cod,'../data/res_concave_ts_with_cod.rds')
 }
 ```
+
+## Select from manuscript_threshold (watermasks obtained using minimum error threshold for the same period)
+
+```{r}
+id_array=id_match$id_jrc %>% paste(collapse=", ")
+
+if(file.exists('../data/res_threshold_ts_with_cod.rds')){
+    res_threshold_ts_with_cod=readRDS('../data/res_threshold_ts_with_cod.rds')
+else {
+    select = paste0("SELECT jrc_",project,".id_jrc, ST_area(ST_Transform(jrc_",project,".geom,32629)) as ref_area, ST_Perimeter(ST_Transform(jrc_",project,".geom,32629)) as ref_perimeter, ",project,"_threshold.area,",project,"_threshold.ingestion_time,",project,"_threshold.source_id")
+
+    from = paste0("FROM jrc_",project," RIGHT JOIN ",project,"_threshold ON jrc_",project,".id_jrc=",project,"_threshold.id_jrc")
+
+    where = paste0("WHERE ",project,"_threshold.id_jrc = ANY(ARRAY[",id_array,"]);")
+
+    q_string=  paste(select, from, where, sep=" ")
+
+    con <- dbDriver("PostgreSQL") %>% dbConnect(dbname='watermasks', host = db_host, port = 5432, user = "sar2water", password = pw)
+    res_threshold_ts <- dbGetQuery(con,q_string) %>% as_tibble
+    dbDisconnect(conn = con)
+
+    res_threshold_ts_with_cod = res_threshold_ts %>% right_join(id_match)
+
+    saveRDS(res_threshold_ts_with_cod,'../data/res_threshold_ts_with_cod.rds')
+}
+```
+
 
 
 # Obtain field monitoring for the same period from FUNCEME
 
 This may take a couple of minutes if you haven't previously run this part of the script.
 ```{r}
+
+reservoir_ts_with_cod = res_threshold_ts_with_cod %>% mutate(algorithm='minimum error threshold') %>% bind_rows(res_concave_ts_with_cod %>% mutate(algorithm='canny edge + concave hull'))
 
 library(lubridate)
 cod_i=reservoir_ts_with_cod %>% distinct(cod) %>% pull(cod)
@@ -113,7 +141,7 @@ for(j in seq(1,length(cod_i))) {
                 as_tibble %>%
                 select(dataColeta,valor,percentual) %>%
                 mutate(cod=cod_i[j])
-            
+
             saveRDS(cutoffs[[i]],file=saved_file)
         }
     }
@@ -155,7 +183,7 @@ validation_ts=funceme_ts %>%
            ) %>%
     rename(volume=valor) %>%
     arrange(id_jrc)
-    
+
 ```
 
 # Estimate volume from observed watermasks
@@ -169,7 +197,7 @@ observation_ts = reservoir_ts_with_cod %>%
     mutate(volume = ifelse(area==0,0,modified_molle(area, modified_alpha(ref_perimeter,ref_area),modified_K(ref_perimeter,ref_area)))) %>%
     select(id_jrc,cod,time_stamp,volume,ref_area,area) %>%
     arrange(id_jrc)
-    
+
 
 ```
 
