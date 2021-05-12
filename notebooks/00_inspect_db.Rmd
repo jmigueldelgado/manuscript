@@ -28,7 +28,6 @@ project='manuscript'
 
 ```{r}
 jrc_static_watermasks = st_read('../data/wm_utm_manuscript.gpkg')
-
 load('../data/reservoirs.RData')
 strategic_reservoirs=reservoirs %>% st_set_crs(.,4326)
 ```
@@ -51,24 +50,17 @@ if(file.exists('../data/id_match.rds')){
 
 ```{r}
 id_array=id_match$id_jrc %>% paste(collapse=", ")
-
 if(file.exists('../data/res_concave_ts_with_cod.rds')){
   res_concave_ts_with_cod=readRDS('../data/res_concave_ts_with_cod.rds')
 } else {
     select = paste0("SELECT jrc_",project,".id_jrc, ST_area(ST_Transform(jrc_",project,".geom,32629)) as ref_area, ST_Perimeter(ST_Transform(jrc_",project,".geom,32629)) as ref_perimeter, ",project,"_concave_geom.area,",project,"_concave_geom.ingestion_time,",project,"_concave_geom.source_id")
-
     from = paste0("FROM jrc_",project," RIGHT JOIN ",project,"_concave_geom ON jrc_",project,".id_jrc=",project,"_concave_geom.id_jrc")
-
     where = paste0("WHERE ",project,"_concave_geom.id_jrc = ANY(ARRAY[",id_array,"]);")
-
     q_string=  paste(select, from, where, sep=" ")
-
     con <- dbDriver("PostgreSQL") %>% dbConnect(dbname='watermasks', host = db_host, port = 5432, user = "sar2water", password = pw)
     res_concave_ts <- dbGetQuery(con,q_string) %>% as_tibble
     dbDisconnect(conn = con)
-
     res_concave_ts_with_cod = res_concave_ts %>% right_join(id_match)
-
     saveRDS(res_concave_ts_with_cod,'../data/res_concave_ts_with_cod.rds')
 }
 ```
@@ -77,24 +69,17 @@ if(file.exists('../data/res_concave_ts_with_cod.rds')){
 
 ```{r}
 id_array=id_match$id_jrc %>% paste(collapse=", ")
-
 if(file.exists('../data/res_threshold_ts_with_cod.rds')){
   res_threshold_ts_with_cod=readRDS('../data/res_threshold_ts_with_cod.rds')
   } else {
     select = paste0("SELECT jrc_",project,".id_jrc, ST_area(ST_Transform(jrc_",project,".geom,32629)) as ref_area, ST_Perimeter(ST_Transform(jrc_",project,".geom,32629)) as ref_perimeter, ",project,"_threshold_geom.area,",project,"_threshold_geom.ingestion_time,",project,"_threshold_geom.source_id")
-
     from = paste0("FROM jrc_",project," RIGHT JOIN ",project,"_threshold_geom ON jrc_",project,".id_jrc=",project,"_threshold_geom.id_jrc")
-
     where = paste0("WHERE ",project,"_threshold_geom.id_jrc = ANY(ARRAY[",id_array,"]);")
-
     q_string=  paste(select, from, where, sep=" ")
-
     con <- dbDriver("PostgreSQL") %>% dbConnect(dbname='watermasks', host = db_host, port = 5432, user = "sar2water", password = pw)
     res_threshold_ts <- dbGetQuery(con,q_string) %>% as_tibble
     dbDisconnect(conn = con)
-
     res_threshold_ts_with_cod = res_threshold_ts %>% right_join(id_match)
-
     saveRDS(res_threshold_ts_with_cod,'../data/res_threshold_ts_with_cod.rds')
 }
 ```

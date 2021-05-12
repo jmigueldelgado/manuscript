@@ -26,7 +26,9 @@ dataset=readRDS('../data/dataset.rds')
 ```{r}
 
 
-dataset %>% select(id_jrc, time_stamp, volume_rs, volume_val, ref_area, algorithm)
+dataset %>%
+    select(id_jrc, time_stamp, volume_rs, volume_val, ref_area, algorithm) %>%
+    tidyr::pivot_wider(names_from =  algorithm, values_from= volume_rs,values_fn = length)
 
 dataset %>%
   tidyr::pivot_wider(names_from = algorithm,values_from = volume_rs) %>%
