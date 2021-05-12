@@ -1,0 +1,38 @@
+---
+title: "Calculate metrics and plot model fit"
+author: "JM Delgado"
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r}
+library(dplyr)
+library(RPostgreSQL)
+library(ggplot2)
+library(sf)
+
+dataset=readRDS('../data/dataset.rds')
+
+```
+
+# Plot and calculate model fit metric
+
+```{r}
+
+dataset %>%
+  tidyr::pivot_wider(names_from = algorithm,values_from = volume_rs) %>%
+  yardstick::rmse(volume_val,volume_rs)
+
+plt=ggplot(dataset)+
+  geom_point(aes(x=volume_rs,y=volume_val,color=id_jrc,shape=algorithm)) #+
+#  coord_trans(x="log2", y="log2")
+ggsave('validation_plot.png',plt)
+```
+
+The scatter plot is not good. There is no skill in predicting volume from satellite radar images. This could be expected, since the HAV function is calculated with maximum area and maximum perimeter obtained from a remote sensing dataset. Maybe this could be improved, but most importantly, _can we at least have some skill in predicting approximate states of the system?_ For example, predicting if the reservoir is empty, half-full or full? This would already be a great piece of information.

@@ -48,12 +48,13 @@ if(file.exists('../data/id_match.rds')){
 # Load SAR monitoring from postgresql and filter only matched reservoirs
 
 ## Select from manuscript_concave (watermasks obtained using edge detection and concave hull)
+
 ```{r}
 id_array=id_match$id_jrc %>% paste(collapse=", ")
 
 if(file.exists('../data/res_concave_ts_with_cod.rds')){
-    res_concave_ts_with_cod=readRDS('../data/res_concave_ts_with_cod.rds')
-else {
+  res_concave_ts_with_cod=readRDS('../data/res_concave_ts_with_cod.rds')
+} else {
     select = paste0("SELECT jrc_",project,".id_jrc, ST_area(ST_Transform(jrc_",project,".geom,32629)) as ref_area, ST_Perimeter(ST_Transform(jrc_",project,".geom,32629)) as ref_perimeter, ",project,"_concave_geom.area,",project,"_concave_geom.ingestion_time,",project,"_concave_geom.source_id")
 
     from = paste0("FROM jrc_",project," RIGHT JOIN ",project,"_concave_geom ON jrc_",project,".id_jrc=",project,"_concave_geom.id_jrc")
@@ -78,8 +79,8 @@ else {
 id_array=id_match$id_jrc %>% paste(collapse=", ")
 
 if(file.exists('../data/res_threshold_ts_with_cod.rds')){
-    res_threshold_ts_with_cod=readRDS('../data/res_threshold_ts_with_cod.rds')
-else {
+  res_threshold_ts_with_cod=readRDS('../data/res_threshold_ts_with_cod.rds')
+  } else {
     select = paste0("SELECT jrc_",project,".id_jrc, ST_area(ST_Transform(jrc_",project,".geom,32629)) as ref_area, ST_Perimeter(ST_Transform(jrc_",project,".geom,32629)) as ref_perimeter, ",project,"_threshold_geom.area,",project,"_threshold_geom.ingestion_time,",project,"_threshold_geom.source_id")
 
     from = paste0("FROM jrc_",project," RIGHT JOIN ",project,"_threshold_geom ON jrc_",project,".id_jrc=",project,"_threshold_geom.id_jrc")
@@ -215,12 +216,12 @@ ds=inner_join(rs_dataset,validation_dataset,suffix=c('_rs','_val'),by=c('id_jrc'
 ```{r}
 
 ds %>%
-  pivot_wider(names_from = algorithm,values_from = volume_rs) %>%
+  tidyr::pivot_wider(names_from = algorithm,values_from = volume_rs) %>%
   yardstick::rmse(volume_val,volume_rs)
 
 plt=ggplot(ds)+
-  geom_point(aes(x=volume_rs,y=volume_val,color=id_jrc,shape=algorithm)) +
-  coord_trans(x="log2", y="log2")
+  geom_point(aes(x=volume_rs,y=volume_val,color=id_jrc,shape=algorithm)) #+
+#  coord_trans(x="log2", y="log2")
 ggsave('validation_plot.png',plt)
 ```
 

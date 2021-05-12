@@ -1,0 +1,228 @@
+---
+title: "Inspect watermasks in database"
+author: "JM Delgado"
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r}
+library(dplyr)
+library(RPostgreSQL)
+library(ggplot2)
+library(sf)
+
+source("../R/pw.R")
+source("../R/hav.R")
+extent = st_read('../data/extent_manuscript.geojson')
+project='manuscript'
+```
+
+
+# Load JRC static dataset and validation points from FUNCEME
+
+```{r}
+jrc_static_watermasks = st_read('../data/wm_utm_manuscript.gpkg')
+
+load('../data/reservoirs.RData')
+strategic_reservoirs=reservoirs %>% st_set_crs(.,4326)
+```
+
+# Match ids or load look up table
+```{r}
+if(file.exists('../data/id_match.rds')){
+    id_match=readRDS('../data/id_match.rds')
+} else {
+    match=st_intersects(st_transform(strategic_reservoirs,32724),st_buffer(jrc_static_watermasks,100),sparse=TRUE)
+    match_cod=lapply(match,function(x){if(length(x)==0) {FALSE} else {TRUE}}) %>% unlist
+    id_match=tibble(cod=strategic_reservoirs$cod[match_cod],id_jrc=unlist(match) %>% jrc_static_watermasks$id_jrc[.])
+    saveRDS(id_match,file='../data/id_match.rds')
+}
+```
+
+# Load SAR monitoring from postgresql and filter only matched reservoirs
+
+## Select from manuscript_concave (watermasks obtained using edge detection and concave hull)
+
+```{r}
+id_array=id_match$id_jrc %>% paste(collapse=", ")
+
+if(file.exists('../data/res_concave_ts_with_cod.rds')){
+  res_concave_ts_with_cod=readRDS('../data/res_concave_ts_with_cod.rds')
+} else {
+    select = paste0("SELECT jrc_",project,".id_jrc, ST_area(ST_Transform(jrc_",project,".geom,32629)) as ref_area, ST_Perimeter(ST_Transform(jrc_",project,".geom,32629)) as ref_perimeter, ",project,"_concave_geom.area,",project,"_concave_geom.ingestion_time,",project,"_concave_geom.source_id")
+
+    from = paste0("FROM jrc_",project," RIGHT JOIN ",project,"_concave_geom ON jrc_",project,".id_jrc=",project,"_concave_geom.id_jrc")
+
+    where = paste0("WHERE ",project,"_concave_geom.id_jrc = ANY(ARRAY[",id_array,"]);")
+
+    q_string=  paste(select, from, where, sep=" ")
+
+    con <- dbDriver("PostgreSQL") %>% dbConnect(dbname='watermasks', host = db_host, port = 5432, user = "sar2water", password = pw)
+    res_concave_ts <- dbGetQuery(con,q_string) %>% as_tibble
+    dbDisconnect(conn = con)
+
+    res_concave_ts_with_cod = res_concave_ts %>% right_join(id_match)
+
+    saveRDS(res_concave_ts_with_cod,'../data/res_concave_ts_with_cod.rds')
+}
+```
+
+## Select from manuscript_threshold (watermasks obtained using minimum error threshold for the same period)
+
+```{r}
+id_array=id_match$id_jrc %>% paste(collapse=", ")
+
+if(file.exists('../data/res_threshold_ts_with_cod.rds')){
+  res_threshold_ts_with_cod=readRDS('../data/res_threshold_ts_with_cod.rds')
+  } else {
+    select = paste0("SELECT jrc_",project,".id_jrc, ST_area(ST_Transform(jrc_",project,".geom,32629)) as ref_area, ST_Perimeter(ST_Transform(jrc_",project,".geom,32629)) as ref_perimeter, ",project,"_threshold_geom.area,",project,"_threshold_geom.ingestion_time,",project,"_threshold_geom.source_id")
+
+    from = paste0("FROM jrc_",project," RIGHT JOIN ",project,"_threshold_geom ON jrc_",project,".id_jrc=",project,"_threshold_geom.id_jrc")
+
+    where = paste0("WHERE ",project,"_threshold_geom.id_jrc = ANY(ARRAY[",id_array,"]);")
+
+    q_string=  paste(select, from, where, sep=" ")
+
+    con <- dbDriver("PostgreSQL") %>% dbConnect(dbname='watermasks', host = db_host, port = 5432, user = "sar2water", password = pw)
+    res_threshold_ts <- dbGetQuery(con,q_string) %>% as_tibble
+    dbDisconnect(conn = con)
+
+    res_threshold_ts_with_cod = res_threshold_ts %>% right_join(id_match)
+
+    saveRDS(res_threshold_ts_with_cod,'../data/res_threshold_ts_with_cod.rds')
+}
+```
+
+
+
+# Obtain field monitoring for the same period from FUNCEME
+
+This may take a couple of minutes if you haven't previously run this part of the script.
+```{r}
+
+reservoir_ts_with_cod = res_threshold_ts_with_cod %>% mutate(algorithm='minimum error threshold') %>% bind_rows(res_concave_ts_with_cod %>% mutate(algorithm='canny edge + concave hull'))
+
+library(lubridate)
+cod_i=reservoir_ts_with_cod %>% distinct(cod) %>% pull(cod)
+page_limit=100
+cutoff_date=seq(min(reservoir_ts_with_cod$ingestion_time,na.rm=TRUE),max(reservoir_ts_with_cod$ingestion_time,na.rm=TRUE),paste0(page_limit,' day'))
+api_url='http://api.funceme.br'
+path='rest/acude/volume'
+
+
+cods=list()
+for(j in seq(1,length(cod_i))) {
+    cutoffs=list()
+    for(i in seq(1,length(cutoff_date))) {
+
+        saved_file=paste0('../data/from_api/volume/cod_',cod_i[j],"_",i,"_of_",length(cutoff_date),".rds")
+
+        if(file.exists(saved_file)){
+            cutoffs[[i]]=readRDS(saved_file)
+            next
+        } else {
+            raw = httr::GET(url = api_url, path = path,
+                            query=list(reservatorio.cod=paste0(cod_i[j]),
+                                       dataColeta.GTE=paste0(with_tz(cutoff_date[i],tz="America/Sao_Paulo")),
+                                       orderBy='dataColeta,cres',limit=page_limit))
+            if(inherits(raw, "try-error")) next
+
+            json_content=rawToChar(raw$content) %>%
+                jsonlite::fromJSON()
+
+            if(length(json_content$list)==0) next
+
+            cutoffs[[i]]=json_content$list %>%
+                as_tibble %>%
+                select(dataColeta,valor,percentual) %>%
+                mutate(cod=cod_i[j])
+
+            saveRDS(cutoffs[[i]],file=saved_file)
+        }
+    }
+    cods[[j]]=bind_rows(cutoffs)
+}
+
+funceme_ts=bind_rows(cods)
+```
+
+# Exclude large reservoirs from validation
+
+Choose threshold for exclusion in the reference dataset:
+
+```{r}
+validation_ids=reservoir_ts_with_cod %>%
+    group_by(id_jrc) %>%
+    summarise(cod=first(cod),ref_area=first(ref_area),ref_perimeter=first(ref_perimeter)) %>%
+    mutate(threshold=percent_rank(ref_area)) %>%
+    filter(threshold<0.5) %>%
+    select(id_jrc,cod,ref_area)
+
+#ggplot(validation_dataset) + geom_histogram(aes(x=ref_area))
+```
+
+# Prepare validation data
+
+```{r}
+validation_dataset=funceme_ts %>%
+    group_by(cod) %>%
+    mutate(count=n()) %>%
+    filter(count>=400) %>%
+    select(-count) %>%
+    ungroup %>%
+    inner_join(select(validation_ids,cod,id_jrc)) %>%
+    mutate(time_stamp=ymd_hms(dataColeta) %>%
+               force_tz(tzone='America/Sao_Paulo') %>%
+               floor_date('day'),
+           valor=valor*1000000           
+           ) %>%
+    rename(volume=valor) %>%
+    arrange(id_jrc)
+
+```
+
+# Estimate volume from remote sensing watermasks
+
+```{r}
+source('../R/hav.R')
+
+rs_dataset = reservoir_ts_with_cod %>%
+    inner_join(select(validation_ids,id_jrc)) %>%
+    mutate(time_stamp=with_tz(ingestion_time,tzone='America/Sao_Paulo') %>% floor_date('day')) %>%
+    mutate(volume = ifelse(area==0,0,modified_molle(area, modified_alpha(ref_perimeter,ref_area),modified_K(ref_perimeter,ref_area)))) %>%
+    select(id_jrc,cod,time_stamp,volume,ref_area,area,algorithm) %>%
+    arrange(id_jrc)
+
+
+```
+
+
+# Join datasets by date
+
+```{r}
+
+ds=inner_join(rs_dataset,validation_dataset,suffix=c('_rs','_val'),by=c('id_jrc','cod','time_stamp')) %>% filter(volume_rs<100000000) %>% filter(volume_rs>0) %>% filter(volume_val>0) %>% mutate(id_jrc=as.factor(id_jrc))
+
+```
+
+# Plot and calculate model fit metric
+
+```{r}
+
+ds %>%
+  tidyr::pivot_wider(id_cols=c('id_jrc','cod','time_stamp'), names_from = algorithm,values_from = volume_rs) %>%
+  yardstick::rmse(volume_val,`minimum error threshold`)
+
+plt=ggplot(ds)+
+  geom_point(aes(x=volume_rs,y=volume_val,color=id_jrc,shape=algorithm)) #+
+#  coord_trans(x="log2", y="log2")
+ggsave('validation_plot.png',plt)
+```
+
+The scatter plot is not good. There is no skill in predicting volume from satellite radar images. This could be expected, since the HAV function is calculated with maximum area and maximum perimeter obtained from a remote sensing dataset. Maybe this could be improved, but most importantly, _can we at least have some skill in predicting approximate states of the system?_ For example, predicting if the reservoir is empty, half-full or full? This would already be a great piece of information.
