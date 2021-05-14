@@ -1,0 +1,78 @@
+---
+title: "Obtain and prepare validation data"
+author: "JM Delgado"
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# Defining osm tags
+
+We want to obtain the extent of six reservoirs spread aroud Ceará. Some are available on osm, other not.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(sf)
+library(osmdata)
+
+if(file.exists('./bounding_boxes.geojson')){
+    bounding_boxes=st_read('./bounding_boxes.geojson')
+} else
+{
+    penedo = opq(bbox = 'Ceará', timeout = 360) %>%
+        add_osm_feature(key = 'natural', value = 'water') %>%
+        add_osm_feature(key = 'name', value = 'Açude Penedo') %>%
+        osmdata_sf() %>%
+        .$osm_multipolygons %>%
+        st_bbox %>%
+        st_as_sfc %>%
+        st_sf(name='Penedo',geom=.) %>%
+        st_transform(32724)
+    
+    saodomingos = opq(bbox = 'Ceará', timeout = 360) %>%
+        add_osm_feature(key = 'natural', value = 'water') %>%
+        add_osm_feature(key = 'name', value = 'Açude São Domingos') %>%
+        osmdata_sf() %>%
+        .$osm_polygons %>%
+        st_bbox %>%
+        st_as_sfc %>%
+        st_sf(name='São Domingos',geom=.) %>%
+        st_transform(32724)
+    
+    salao = opq(bbox = 'Ceará', timeout = 360) %>%
+        add_osm_feature(key = 'natural', value = 'water') %>%
+        add_osm_feature(key = 'name', value = 'Açude Salão') %>%
+        osmdata_sf() %>%
+        .$osm_polygons %>%
+        st_bbox %>%
+        st_as_sfc %>%
+        st_sf(name='Salão',geom=.) %>%
+        st_transform(32724)
+    
+    jatoba=structure(c(473200,9379400,474000,9380600), names = c("xmin", "ymin", "xmax", "ymax"), class = "bbox") %>%
+        st_as_sfc %>% st_sf(name='Jatobá',geom=.) %>% st_set_crs(32724)
+    
+    pausbrancos=structure(c(444000,9457000,447000,9465000), names = c("xmin", "ymin", "xmax", "ymax"), class = "bbox") %>%
+        st_as_sfc %>% st_sf(name='Paus Brancos',geom=.) %>% st_set_crs(32724)
+    
+    saonicolau=structure(c(440800,9450000,442000,9452000), names = c("xmin", "ymin", "xmax", "ymax"), class = "bbox") %>%
+        st_as_sfc %>% st_sf(name='São Nicolau',geom=.) %>% st_set_crs(32724)
+    
+    bounding_boxes=bind_rows(penedo, saodomingos, salao, jatoba, pausbrancos, saonicolau)
+    
+    st_write(bounding_boxes,dsn='./bounding_boxes.geojson')
+}
+
+```
+
+# Download sentinel-1 data by hand
+
+Now we need to download sentinel-1 data by hand, since we only need on month of data for a few locations (API would be overkill). The relevant dates are based on Eleonore's master thesis: from 14/8/2019 to 19/8/2019.
+
+

@@ -1,0 +1,59 @@
+---
+title: "Obtain and prepare validation data"
+author: "JM Delgado"
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# Defining osm tags
+
+We want to obtain the extent of six reservoirs spread aroud Ceará.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(sf)
+library(osmdata)
+
+penedo = opq(bbox = 'Ceará', timeout = 360) %>%
+    add_osm_feature(key = 'natural', value = 'water') %>%
+    add_osm_feature(key = 'name', value = 'Açude Penedo') %>%
+    osmdata_sf()
+
+saodomingos = opq(bbox = 'Ceará', timeout = 360) %>%
+    add_osm_feature(key = 'natural', value = 'water') %>%
+    add_osm_feature(key = 'name', value = 'Açude São Domingos') %>%
+    osmdata_sf()
+
+salao = opq(bbox = 'Ceará', timeout = 360) %>%
+    add_osm_feature(key = 'natural', value = 'water') %>%
+    add_osm_feature(key = 'name', value = 'Açude Salão') %>%
+    osmdata_sf()
+
+```
+
+The following are not available on osm:
+
+```{r}
+bb_jatoba = data.frame(xmin=473200,ymin=9379400,xmax=474000,ymax=9380600)
+sfc_jatoba=structure(as.double(bb_jatoba), names = c("xmin", "ymin", "xmax", "ymax"), class = "bbox") %>%
+    st_sfg
+
+bb_pausbrancos = data.frame(444000,9457000,447000,9465000)
+pausbrancos=structure(as.double(bb_pausbrancos), names = c("xmin", "ymin", "xmax", "ymax"), class = "bbox") %>%
+    st_as_sfc %>% st_sf(name='Paus Brancos',geom=.)
+
+bb_saonicolau = c(440800,9450000,442000,9452000)
+saonicolau=structure(as.double(bb_saonicolau), names = c("xmin", "ymin", "xmax", "ymax"), class = "bbox") %>%
+    st_as_sfc %>% st_sf(name='São Nicolau',geom=.)
+
+BBs=st_sf(name=c('Jatobá','Paus Brancos','São Nicolau'),geometry=list(sfc_jatoba,sfc_pausbrancos,sfc_saonicolau))
+sfc_as_sfg(sfc_jatoba)
+
+```

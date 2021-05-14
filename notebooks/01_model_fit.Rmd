@@ -26,11 +26,31 @@ dataset=readRDS('../data/dataset.rds')
 ```{r}
 
 
-dataset %>% select(id_jrc, time_stamp, volume_rs, volume_val, ref_area, algorithm)
+dataset %>%
+    select(id_jrc, time_stamp, volume_rs, volume_val, ref_area, algorithm) %>%
+    group_by(id_jrc,time_stamp) %>% filter(n()==2) %>%
+    tidyr::pivot_wider(names_from=algorithm, values_from=volume_rs) %>%
+    ungroup %>%
+    yardstick::mae(volume_val,`canny edge + concave hull`)
 
 dataset %>%
-  tidyr::pivot_wider(names_from = algorithm,values_from = volume_rs) %>%
-  yardstick::rmse(volume_val,volume_rs)
+    select(id_jrc, time_stamp, volume_rs, volume_val, ref_area, algorithm) %>%
+    group_by(id_jrc,time_stamp) %>% filter(n()==2) %>%
+    tidyr::pivot_wider(names_from=algorithm, values_from=volume_rs) %>%
+    ungroup %>%
+    yardstick::mae(volume_val,`minimum error threshold`)
+
+
+## combined
+dataset %>%
+    select(id_jrc, time_stamp, volume_rs, volume_val, ref_area, algorithm) %>%
+    group_by(id_jrc,time_stamp) %>% filter(n()==2) %>%
+    tidyr::pivot_wider(names_from=algorithm, values_from=volume_rs) %>%
+    ungroup %>%
+    mutate(combined=(`minimum error threshold` + `canny edge + concave hull`)/2) %>%
+    yardstick::mae(volume_val,combined)
+
+
 
 plt=ggplot(dataset)+
   geom_point(aes(x=volume_rs,y=volume_val,color=id_jrc,shape=algorithm)) #+
